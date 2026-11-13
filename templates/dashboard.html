@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kunjungan Wisata 2018-2025</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root { --kertas:#edf2f3; --tinta:#14262d; --sungai:#1d6a86; --belerang:#d9a521; --batu:#6b7c84; --garis:#cfd9dc; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--kertas); color:var(--tinta);
+           font-family:"Bricolage Grotesque", system-ui, sans-serif; }
+    header { padding:32px 24px 20px; max-width:1100px; margin:0 auto; }
+    h1 { font-size:clamp(26px,4vw,40px); font-weight:800; margin:0 0 6px; letter-spacing:-.02em; }
+    header p { margin:0; color:var(--batu); max-width:60ch; }
+    .filter { display:flex; gap:16px; flex-wrap:wrap; margin-top:20px; }
+    .filter label { display:flex; flex-direction:column; font-size:13px; color:var(--batu); gap:4px; }
+    select { font:inherit; padding:8px 12px; border:1px solid var(--garis); border-radius:6px; background:#fff; color:var(--tinta); min-width:180px; }
+    select:focus-visible { outline:2px solid var(--sungai); outline-offset:1px; }
+    main { max-width:1100px; margin:0 auto; padding:0 24px 40px; display:grid; gap:28px 24px; grid-template-columns:repeat(2,1fr); }
+    .ringkas { grid-column:1/-1; display:grid; grid-template-columns:2fr 1fr 1fr 1fr; gap:24px; border-top:3px solid var(--tinta); padding-top:16px; }
+    .ringkas .utama .angka { font-size:clamp(36px,6vw,64px); color:var(--sungai); font-weight:800; line-height:1; }
+    .angka { font-size:24px; font-weight:600; line-height:1.2; }
+    .label { font-size:13px; color:var(--batu); margin-top:4px; }
+    section.grafik-box { border-top:1px solid var(--garis); padding-top:12px; min-width:0; }
+    .lebar { grid-column:1/-1; }
+    h2 { font-size:16px; font-weight:600; margin:0 0 2px; }
+    .ket { font-size:12.5px; color:var(--batu); margin:0 0 10px; }
+    .kanvas { position:relative; height:260px; }
+    .catatan { grid-column:1/-1; font-size:13px; color:var(--batu); border-left:3px solid var(--belerang); padding-left:12px; max-width:80ch; margin:0; }
+    @media (max-width:760px) { main { grid-template-columns:1fr; } .ringkas { grid-template-columns:1fr 1fr; } .ringkas .utama { grid-column:1/-1; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Kunjungan Objek Wisata, 2018-2025</h1>
+    <p>Jumlah pengunjung bulanan di 12 objek wisata. Pilih tahun atau objek untuk memperbarui semua grafik.</p>
+    <div class="filter">
+      <label>Tahun
+        <select id="tahun">
+          <option value="">Semua tahun</option>
+          {% for t in daftar_tahun %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Objek wisata
+        <select id="objek">
+          <option value="">Semua objek</option>
+          {% for o in daftar_objek %}<option value="{{ o }}">{{ o }}</option>{% endfor %}
+        </select>
+      </label>
+    </div>
+  </header>
+
+  <main>
+    <section class="ringkas">
+      <div class="utama"><div class="angka" id="total">-</div><div class="label">Total pengunjung</div></div>
+      <div><div class="angka" id="teratas">-</div><div class="label">Objek terpopuler</div></div>
+      <div><div class="angka" id="rata">-</div><div class="label">Rata-rata per bulan</div></div>
+      <div><div class="angka" id="puncak">-</div><div class="label">Bulan puncak</div></div>
+    </section>
+
+    <section class="grafik-box lebar">
+      <h2>Total pengunjung per tahun</h2>
+      <p class="ket">Menampilkan semua tahun, hanya terpengaruh filter objek.</p>
+      <div class="kanvas"><canvas id="gTren"></canvas></div>
+    </section>
+    <section class="grafik-box">
+      <h2>Objek dengan pengunjung terbanyak</h2>
+      <p class="ket">Total pengunjung pada periode terpilih.</p>
+      <div class="kanvas"><canvas id="gTop"></canvas></div>
+    </section>
+    <section class="grafik-box">
+      <h2>Komposisi pengunjung</h2>
+      <p class="ket">Lima objek teratas, sisanya digabung.</p>
+      <div class="kanvas"><canvas id="gKomposisi"></canvas></div>
+    </section>
+    <section class="grafik-box lebar">
+      <h2>Pola musiman</h2>
+      <p class="ket">Rata-rata pengunjung per bulan. Bulan tanpa catatan tidak dihitung.</p>
+      <div class="kanvas"><canvas id="gMusiman"></canvas></div>
+    </section>
+
+    <p class="catatan" id="catatan"></p>
+  </main>
+
+  <script>
+    Chart.defaults.maintainAspectRatio = false;
+    Chart.defaults.font.family = '"Bricolage Grotesque", system-ui, sans-serif';
+    const WARNA = ["#1d6a86", "#d9a521", "#4d8a5a", "#9a4f6d", "#6b7c84", "#b9c6cb"];
+    const fmt = new Intl.NumberFormat("id-ID");
+    const grafik = {};
+
+    function gambar(id, config) {
+      if (grafik[id]) grafik[id].destroy();
+      grafik[id] = new Chart(document.getElementById(id), config);
+    }
+    const ambil = async (url) => (await fetch(url)).json();
+    const skalaAngka = { ticks: { callback: (v) => fmt.format(v) } };
+    const tooltipAngka = { callbacks: { label: (c) => " " + fmt.format(c.chart.options.indexAxis === "y" ? c.parsed.x : c.parsed.y) } };
+
+    async function muatData() {
+      const p = new URLSearchParams();
+      const tahun = document.getElementById("tahun").value;
+      const objek = document.getElementById("objek").value;
+      if (tahun) p.set("tahun", tahun);
+      if (objek) p.set("objek", objek);
+      const q = p.toString() ? "?" + p.toString() : "";
+
+      const r = await ambil("/api/ringkasan" + q);
+      document.getElementById("total").textContent = fmt.format(r.total);
+      document.getElementById("teratas").textContent = r.objek_teratas;
+      document.getElementById("rata").textContent = fmt.format(r.rata_bulanan);
+      document.getElementById("puncak").textContent = r.puncak;
+      document.getElementById("catatan").textContent = r.baris === 0
+        ? "Tidak ada data untuk kombinasi tahun dan objek ini (objek tersebut tidak tercatat pada tahun itu)."
+        : r.bulan_kosong > 0
+        ? r.bulan_kosong + " catatan bulanan pada pilihan ini kosong (tanda '-' di data asli, kemungkinan tutup atau tidak tercatat). Total tidak menghitungnya."
+        : "Semua bulan pada pilihan ini memiliki catatan.";
+
+      const tren = await ambil("/api/tren-tahun" + (objek ? "?objek=" + encodeURIComponent(objek) : ""));
+      gambar("gTren", { type: "line",
+        data: { labels: tren.labels, datasets: [{ data: tren.data, borderColor: WARNA[0], backgroundColor: WARNA[0], tension: .25, pointRadius: 4 }] },
+        options: { plugins: { legend: { display: false }, tooltip: tooltipAngka }, scales: { y: { ...skalaAngka, beginAtZero: true } } } });
+
+      const top = await ambil("/api/top-objek" + q);
+      gambar("gTop", { type: "bar",
+        data: { labels: top.labels, datasets: [{ data: top.data, backgroundColor: WARNA[0] }] },
+        options: { indexAxis: "y", plugins: { legend: { display: false }, tooltip: tooltipAngka }, scales: { x: skalaAngka } } });
+
+      const kom = await ambil("/api/komposisi" + q);
+      gambar("gKomposisi", { type: "doughnut",
+        data: { labels: kom.labels, datasets: [{ data: kom.data, backgroundColor: WARNA }] },
+        options: { plugins: { legend: { position: "right" },
+          tooltip: { callbacks: { label: (c) => " " + c.label + ": " + fmt.format(c.parsed) } } } } });
+
+      const mus = await ambil("/api/musiman" + q);
+      gambar("gMusiman", { type: "bar",
+        data: { labels: mus.labels, datasets: [{ data: mus.data, backgroundColor: WARNA[1] }] },
+        options: { plugins: { legend: { display: false }, tooltip: tooltipAngka }, scales: { y: skalaAngka } } });
+    }
+
+    document.getElementById("tahun").addEventListener("change", muatData);
+    document.getElementById("objek").addEventListener("change", muatData);
+    muatData();
+  </script>
+</body>
+</html>
